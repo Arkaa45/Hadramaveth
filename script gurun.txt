@@ -1,0 +1,248 @@
+import bpy
+import bmesh
+import math
+import random
+
+
+# Hapus semua objek yang ada
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.delete(use_global=False)
+
+# Buat mesh grid (dataran)
+bpy.ops.mesh.primitive_grid_add(size=150, x_subdivisions=8, y_subdivisions=8)
+terrain = bpy.context.object
+terrain.name = "Terrain"
+bpy.ops.object.shade_smooth()
+bpy.ops.object.shade_smooth()
+
+# Pindah ke edit mode untuk memodifikasi mesh
+bpy.ops.object.mode_set(mode='EDIT')
+
+# Buat BMesh untuk memodifikasi vertice
+bm = bmesh.from_edit_mesh(terrain.data)
+
+# Amplitude untuk variasi tinggi
+amplitude = 8
+
+# Tambahkan variasi tinggi acak untuk setiap vertex
+for v in bm.verts:
+    # Gunakan random.uniform untuk variasi acak dalam rentang -amplitude hingga +amplitude
+    v.co.z += random.uniform(-amplitude, amplitude)
+
+# Update mesh
+bmesh.update_edit_mesh(terrain.data)
+bpy.ops.object.mode_set(mode='OBJECT')
+
+# Tambahkan material baru untuk warna pasir
+material = bpy.data.materials.new(name="DesertSand")
+material.use_nodes = True
+terrain.data.materials.append(material)
+
+# Akses node material
+nodes = material.node_tree.nodes
+bsdf = nodes.get("Principled BSDF")
+
+# Set warna pasir (coklat muda atau krem)
+if bsdf:
+    bsdf.inputs["Base Color"].default_value = (0.8, 0.381, 0.062, 1)  # Warna pasir krem
+    bsdf.inputs["Roughness"].default_value = 0.9  # Tingkat kekasaran tinggi untuk tampilan berpasir
+
+# Fungsi untuk membuat batang kaktus dan buah merah dengan ketinggian yang bisa diatur
+def create_cactus(x, y, z=1.5):
+    # Batang utama
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.3, depth=3, location=(x, y, z))
+    main_stem = bpy.context.object
+    main_stem.name = "CactusStem"
+    bpy.ops.object.shade_smooth()
+
+    # Tambahkan cabang kaktus di sisi batang utama
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.2, depth=1.3, location=(x + 0.3, y, z + 1.5), rotation=(0, 0, 1))
+    left_branch = bpy.context.object
+    left_branch.name = "CactusBranch_Left"
+
+    bpy.ops.mesh.primitive_cylinder_add(radius=0.2, depth=1.3, location=(x - 0.3, y, z + 1.3), rotation=(0, 0, -1))
+    right_branch = bpy.context.object
+    right_branch.name = "CactusBranch_Right"
+
+    # Material hijau untuk kaktus
+    cactus_material = bpy.data.materials.new(name="CactusGreen")
+    cactus_material.use_nodes = True
+    main_stem.data.materials.append(cactus_material)
+    left_branch.data.materials.append(cactus_material)
+    right_branch.data.materials.append(cactus_material)
+
+    nodes = cactus_material.node_tree.nodes
+    bsdf = nodes.get("Principled BSDF")
+    if bsdf:
+        bsdf.inputs["Base Color"].default_value = (0.2, 0.6, 0.2, 1)
+        bsdf.inputs["Roughness"].default_value = 0.6
+
+    # Buat material merah untuk buah kaktus
+    fruit_material = bpy.data.materials.new(name="CactusFruitRed")
+    fruit_material.use_nodes = True
+    fruit_bsdf = fruit_material.node_tree.nodes.get("Principled BSDF")
+    if fruit_bsdf:
+        fruit_bsdf.inputs["Base Color"].default_value = (0.8, 0.1, 0.1, 1)
+        fruit_bsdf.inputs["Roughness"].default_value = 0.4
+
+    # Buah merah di atas batang kaktus
+    fruit_x = x + random.uniform(-0.3, 0.3)
+    fruit_y = y + random.uniform(-0.3, 0.3)
+    fruit_z = z + 1.5  # Tempatkan buah di atas batang utama
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=0.1, location=(fruit_x, fruit_y, fruit_z))
+    fruit = bpy.context.object
+    fruit.name = "CactusFruit"
+    fruit.data.materials.append(fruit_material)
+
+# Daftar koordinat dan ketinggian untuk setiap kaktus
+cactus_locations = [
+    (-38, -2, 5),
+    (55, -5, 5),
+    (-65, 68, 5),
+    (10, 57, 5),
+    (0, 0, 5)  # Kaktus ini berada pada ketinggian default 1.5
+]
+
+# Tempatkan kaktus di lokasi dan ketinggian yang ditentukan
+for loc in cactus_locations:
+    create_cactus(loc[0], loc[1], loc[2])
+
+# Mengaktifkan nodes untuk World
+world = bpy.context.scene.world
+world.use_nodes = True
+world_nodes = world.node_tree.nodes
+
+# Hapus node yang ada di world
+for node in world_nodes:
+    world_nodes.remove(node)
+
+# Buat Background, Sky Texture, dan node tambahan
+background = world_nodes.new(type="ShaderNodeBackground")
+sky_texture = world_nodes.new(type="ShaderNodeTexSky")
+color_adjust = world_nodes.new(type="ShaderNodeHueSaturation")  # Node untuk menyesuaikan warna
+output = world_nodes.new(type="ShaderNodeOutputWorld")
+
+# Atur parameter Sky Texture
+sky_texture.sky_type = 'PREETHAM'  # Bisa 'NISHITA' atau 'HOSEK_WILKIE'
+sky_texture.turbidity = 2.3 # Mengatur kekeruhan langit
+sky_texture.ground_albedo = 0.5  # Refleksi dari tanah
+
+# Atur parameter penyesuaian warna di node Hue Saturation
+color_adjust.inputs["Saturation"].default_value = 1.5 # Sesuaikan saturasi
+color_adjust.inputs["Hue"].default_value = 0.5 # Menyesuaikan rona warna
+color_adjust.inputs["Value"].default_value = 0.7  # Sesuaikan kecerahan
+
+# Hubungkan node Sky Texture ke node Hue Saturation, lalu ke Background dan Output World
+world.node_tree.links.new(sky_texture.outputs["Color"], color_adjust.inputs["Color"])
+world.node_tree.links.new(color_adjust.outputs["Color"], background.inputs["Color"])
+world.node_tree.links.new(background.outputs["Background"], output.inputs["Surface"])
+
+
+# ===========================
+# Fungsi untuk menambahkan kamera
+def add_camera(location, rotation):
+    # Tambahkan kamera di lokasi dan rotasi yang diinginkan
+    bpy.ops.object.camera_add(location=location, rotation=rotation)
+    camera = bpy.context.object
+    bpy.context.scene.camera = camera  # Jadikan kamera ini sebagai kamera aktif
+
+# Fungsi untuk menambahkan lampu
+def add_light(light_type, location, energy=180000):
+    # Tambahkan lampu dengan jenis yang diinginkan (POINT, SUN, SPOT, AREA)
+    bpy.ops.object.light_add(type=light_type, location=location)
+    light = bpy.context.object
+    light.data.energy = energy  # Atur intensitas cahaya
+
+# Atur posisi dan rotasi kamera (contoh)
+camera_location = (186.03, -116.85, 16.913)  # Kamera di depan objek dan sedikit di atas
+camera_rotation = (1.67552, 0, 1.010546)  # Menghadap ke bawah sedikit
+add_camera(camera_location, camera_rotation)
+
+# Tambahkan lampu di berbagai posisi (contoh)`
+add_light('POINT', location=(31.7, 40, 70.5), energy=180000)  
+add_light('POINT', location=(-38, 40, 70.5), energy=180000)  
+# ===========================
+
+# Fungsi untuk membuat piramida dengan material
+def create_pyramid_with_material(base_size=2, height=3, location=(0, 0, 0)):
+    # Koordinat dasar persegi
+    half_base = base_size / 2
+    vertices = [
+        (-half_base, -half_base, 0),  # Sudut kiri bawah
+        (half_base, -half_base, 0),   # Sudut kanan bawah
+        (half_base, half_base, 0),    # Sudut kanan atas
+        (-half_base, half_base, 0),   # Sudut kiri atas
+        (0, 0, height)                # Titik puncak di atas pusat dasar
+    ]
+
+    # Definisikan muka-muka (faces) dari piramida
+    faces = [
+        (0, 1, 4),  # Sisi depan
+        (1, 2, 4),  # Sisi kanan
+        (2, 3, 4),  # Sisi belakang
+        (3, 0, 4),  # Sisi kiri
+        (0, 1, 2, 3)  # Dasar piramida
+    ]
+
+    # Buat mesh dan objek dari piramida
+    mesh = bpy.data.meshes.new("PyramidMesh")
+    pyramid = bpy.data.objects.new("Pyramid", mesh)
+    bpy.context.collection.objects.link(pyramid)
+    
+    # Set lokasi piramida`
+    pyramid.location = location
+
+    # Buat mesh dari data vertex dan face
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+
+    # Buat material berwarna piramida (krem atau cokelat muda)
+    material = bpy.data.materials.new(name="PyramidMaterial")
+    material.use_nodes = True
+    bsdf = material.node_tree.nodes.get("Principled BSDF")
+    bsdf.inputs["Base Color"].default_value = (1, 0.326, 0.033, 1)  # Warna krem/cokelat muda
+    bsdf.inputs["Roughness"].default_value = 0.9  # Menambah kekasaran agar terlihat seperti batu
+
+    # Tambahkan material ke piramida
+    if pyramid.data.materials:
+        pyramid.data.materials[0] = material
+    else:
+        pyramid.data.materials.append(material)
+
+    return pyramid
+
+# Tambahkan piramida ke dalam scene dengan material
+pyramid = create_pyramid_with_material(base_size=40, height=40, location=(-50, -30, -3))
+
+
+# Fungsi untuk membuat UV Sphere dengan material bercahaya kuning
+def create_glowing_yellow_uv_sphere(radius=1, location=(0, 0, 0), emission_strength=5):
+    # Tambahkan UV Sphere
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=radius, location=location)
+    uv_sphere = bpy.context.object  # Dapatkan referensi ke objek UV Sphere yang baru dibuat
+    
+    # Buat material dengan Emission (pencahayaan)
+    material = bpy.data.materials.new(name="GlowingYellowMaterial")
+    material.use_nodes = True
+    
+    # Ambil node material output dan tambahkan node Emission
+    nodes = material.node_tree.nodes
+    nodes.clear()  # Hapus semua node default
+    emission = nodes.new(type="ShaderNodeEmission")
+    emission.inputs["Color"].default_value = (1, 1, 0, 1)  # Warna kuning
+    emission.inputs["Strength"].default_value = emission_strength  # Kekuatan emisi
+
+    # Hubungkan node Emission ke Material Output
+    material_output = nodes.new(type="ShaderNodeOutputMaterial")
+    material.node_tree.links.new(emission.outputs["Emission"], material_output.inputs["Surface"])
+
+    # Tambahkan material ke UV Sphere
+    uv_sphere.data.materials.clear()  # Hapus semua material yang ada
+    uv_sphere.data.materials.append(material)  # Tambahkan material baru
+
+    return uv_sphere
+
+# Tambahkan UV Sphere bercahaya kuning ke dalam scene
+uv_sphere = create_glowing_yellow_uv_sphere(radius=10, location=(-50, 140, 94), emission_strength=10)
+print("UV Sphere bercahaya kuning berhasil ditambahkan!")
+bpy.ops.object.shade_smooth()
